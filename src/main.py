@@ -1,142 +1,69 @@
-
 import importlib.util
 import sys
 from pathlib import Path
 
+PASTA = Path(__file__).resolve().parent
+sys.path.insert(0, str(PASTA))
 
-PASTA_CODIGO = Path(__file__).resolve().parent
+ETAPAS = {
+    "1": ("Preparar banco de dados e sensores", "01_banco_dados.py"),
+    "2": ("Gerar medições simuladas", "02_gerar_medicoes.py"),
+    "3": ("Calcular agregações horárias", "03_agregacoes.py"),
+    "4": ("Armazenar e consultar resumos no Redis", "04_redis.py"),
+    "5": ("Consultar medições por sensor e intervalo", "consultas.py"),
+}
 
 
-def carregar_modulo(nome_arquivo, nome_modulo):
-    caminho = PASTA_CODIGO / nome_arquivo
-
-    if not caminho.exists():
-        print(f"\nERRO: arquivo não encontrado: {caminho}")
-        return None
+def executar_etapa(arquivo):
+    print(f"\n{'=' * 60}\nEXECUTANDO: {arquivo}\n{'=' * 60}")
 
     try:
-        spec = importlib.util.spec_from_file_location(
-            nome_modulo, caminho
-        )
-
-        if spec is None or spec.loader is None:
-            print(f"\nERRO ao carregar {nome_arquivo}.")
-            return None
-
+        caminho = PASTA / arquivo
+        spec = importlib.util.spec_from_file_location(caminho.stem, caminho)
         modulo = importlib.util.module_from_spec(spec)
-        sys.modules[nome_modulo] = modulo
         spec.loader.exec_module(modulo)
-
-        return modulo
-
-    except Exception as erro:
-        print(f"\nERRO ao importar {nome_arquivo}: {erro}")
-        return None
-
-
-def executar_etapa(nome_arquivo, nome_modulo):
- 
-    modulo = carregar_modulo(nome_arquivo, nome_modulo)
-
-    if modulo is None:
-        return False
-
-    funcao_main = getattr(modulo, "main", None)
-
-    if not callable(funcao_main):
-        print(
-            f"\nERRO: {nome_arquivo} precisa possuir "
-            "uma função main()."
-        )
-        return False
-
-    try:
-        print("\n" + "=" * 60)
-        print(f"EXECUTANDO: {nome_arquivo}")
-        print("=" * 60)
-
-        funcao_main()
-
-        print(f"\nEtapa concluída: {nome_arquivo}")
-        return True
+        modulo.main()
 
     except Exception as erro:
-        print(f"\nERRO durante {nome_arquivo}: {erro}")
+        print(f"\nERRO em {arquivo}: {erro}")
         return False
+
+    print(f"\nEtapa concluída: {arquivo}")
+    return True
 
 
 def executar_todas():
-   
-    etapas = [
-        ("01_banco_dados.py", "banco_dados"),
-        ("02_gerar_medicoes.py", "gerar_medicoes"),
-        ("03_agregacoes.py", "agregacoes"),
-        ("04_redis.py", "redis_integracao"),
-    ]
-
-    for arquivo, modulo in etapas:
-        sucesso = executar_etapa(arquivo, modulo)
-
-        if not sucesso:
-            print(
-                "\nExecução interrompida. "
-                "Corrija o erro antes de continuar."
-            )
+    for chave in "1234":
+        if not executar_etapa(ETAPAS[chave][1]):
+            print("\nExecução interrompida. Corrija o erro antes de continuar.")
             return
 
-    print("\n" + "=" * 60)
-    print("PROJETO EXECUTADO COM SUCESSO!")
-    print("Sensores, medições, agregações e Redis processados.")
-    print("=" * 60)
+    print("\nPROJETO EXECUTADO COM SUCESSO!")
 
 
 def exibir_menu():
-  
     while True:
-        print("\n")
-        print("=" * 60)
+        print(f"\n{'=' * 60}")
         print(" MONITORAMENTO DA QUALIDADE DO AR")
         print(" Integração MongoDB + Redis com Python")
         print("=" * 60)
 
-        print("1 - Preparar banco de dados e sensores")
-        print("2 - Gerar medições simuladas")
-        print("3 - Calcular agregações horárias")
-        print("4 - Armazenar e consultar resumos no Redis")
-        print("5 - Executar todas as etapas")
+        for chave, (titulo, _) in ETAPAS.items():
+            print(f"{chave} - {titulo}")
+
+        print("6 - Executar etapas 1 a 4")
         print("0 - Sair")
 
         opcao = input("\nEscolha uma opção: ").strip()
 
-        if opcao == "1":
-            executar_etapa(
-                "01_banco_dados.py", "banco_dados"
-            )
-
-        elif opcao == "2":
-            executar_etapa(
-                "02_gerar_medicoes.py", "gerar_medicoes"
-            )
-
-        elif opcao == "3":
-            executar_etapa(
-                "03_agregacoes.py", "agregacoes"
-            )
-
-        elif opcao == "4":
-            executar_etapa(
-                "04_redis.py", "redis_integracao"
-            )
-
-        elif opcao == "5":
+        if opcao in ETAPAS:
+            executar_etapa(ETAPAS[opcao][1])
+        elif opcao == "6":
             executar_todas()
-
         elif opcao == "0":
-            print("\nEncerrando o sistema...")
             break
-
         else:
-            print("\nOpção inválida. Tente novamente.")
+            print("\nOpção inválida.")
 
 
 if __name__ == "__main__":

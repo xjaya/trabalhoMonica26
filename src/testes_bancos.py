@@ -8,7 +8,7 @@ from datetime import datetime
 from pymongo import MongoClient
 from redis import Redis
 
-from src.dados_teste import MEDICOES_TESTE
+from dados_testes import MEDICOES_TESTE
 
 
 class TestesBancos(unittest.TestCase):

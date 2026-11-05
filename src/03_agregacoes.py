@@ -1,193 +1,46 @@
+import sys
+from pathlib import Path
 
-from pprint import pprint
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from consultas import (
+    formatar_numero, obter_ultima_janela, resumo_por_cidade, resumo_por_sensor
+)
 
-def criar_pipeline_por_sensor():
-    pipeline = [
-        {
-            "$match": {
-                "timestamp": {"$type": "date"},
-                "sensor_id": {"$exists": True}
-            }
-        },
-        {
-            "$group": {
-                "_id": {
-                    "sensor_id": "$sensor_id",
-                    "hora": {
-                        "$dateTrunc": {
-                            "date": "$timestamp",
-                            "unit": "hour"
-                        }
-                    }
-                },
-                "qt_medicoes": {"$sum": 1},
-                "pm25_media": {"$avg": "$pm25"},
-                "pm10_media": {"$avg": "$pm10"},
-                "co2_media": {"$avg": "$co2"},
-                "temperatura_media": {"$avg": "$temperatura"},
-                "umidade_media": {"$avg": "$umidade"},
-                "pm25_max": {"$max": "$pm25"},
-                "pm10_max": {"$max": "$pm10"}
-            }
-        },
-        {
-            "$project": {
-                "_id": 0,
-                "sensor_id": "$_id.sensor_id",
-                "inicio_periodo": "$_id.hora",
-                "fim_periodo": {
-                    "$dateAdd": {
-                        "startDate": "$_id.hora",
-                        "unit": "hour",
-                        "amount": 1
-                    }
-                },
-                "qt_medicoes": 1,
-                "pm25_media": 1,
-                "pm10_media": 1,
-                "co2_media": 1,
-                "temperatura_media": 1,
-                "umidade_media": 1,
-                "pm25_max": 1,
-                "pm10_max": 1
-            }
-        },
-        {
-            "$sort": {
-                "sensor_id": 1,
-                "inicio_periodo": 1
-            }
-        }
-    ]
-
-    return pipeline
+COLUNAS = [
+    ("qt_medicoes", "Qtd", 0), ("pm25_media", "PM2.5", 1),
+    ("pm10_media", "PM10", 1), ("co2_media", "CO2", 0),
+    ("temperatura_media", "Temp", 1), ("umidade_media", "Umid", 1),
+    ("pm25_max", "PM2.5max", 1), ("pm10_max", "PM10max", 1),
+]
 
 
-def criar_pipeline_por_cidade():
-    pipeline = [
-        {
-            "$match": {
-                "timestamp": {"$type": "date"},
-                "sensor_id": {"$exists": True}
-            }
-        },
-        {
-            "$lookup": {
-                "from": "Sensores",
-                "localField": "sensor_id",
-                "foreignField": "_id",
-                "as": "sensor"
-            }
-        },
-        {
-            "$unwind": "$sensor"
-        },
-        {
-            "$group": {
-                "_id": {
-                    "cidade": "$sensor.localizacao.cidade",
-                    "uf": "$sensor.localizacao.uf",
-                    "hora": {
-                        "$dateTrunc": {
-                            "date": "$timestamp",
-                            "unit": "hour"
-                        }
-                    }
-                },
-                "qt_medicoes": {"$sum": 1},
-                "pm25_media": {"$avg": "$pm25"},
-                "pm10_media": {"$avg": "$pm10"},
-                "co2_media": {"$avg": "$co2"},
-                "temperatura_media": {"$avg": "$temperatura"},
-                "umidade_media": {"$avg": "$umidade"},
-                "pm25_max": {"$max": "$pm25"},
-                "pm10_max": {"$max": "$pm10"}
-            }
-        },
-        {
-            "$project": {
-                "_id": 0,
-                "cidade": "$_id.cidade",
-                "uf": "$_id.uf",
-                "inicio_periodo": "$_id.hora",
-                "fim_periodo": {
-                    "$dateAdd": {
-                        "startDate": "$_id.hora",
-                        "unit": "hour",
-                        "amount": 1
-                    }
-                },
-                "qt_medicoes": 1,
-                "pm25_media": 1,
-                "pm10_media": 1,
-                "co2_media": 1,
-                "temperatura_media": 1,
-                "umidade_media": 1,
-                "pm25_max": 1,
-                "pm10_max": 1
-            }
-        },
-        {
-            "$sort": {
-                "cidade": 1,
-                "inicio_periodo": 1
-            }
-        }
-    ]
+def imprimir(titulo, resumos, rotulo):
+    print(f"\n{titulo}")
 
-    return pipeline
+    cabecalho = " " * 16 + "".join(f"{nome:>9}" for _, nome, _ in COLUNAS)
 
-def executar_agregacao_por_sensor(db):
-    """
-    Executa a agregação por sensor e retorna os resultados.
-    """
-    pipeline = criar_pipeline_por_sensor()
+    print(cabecalho)
+    print("-" * len(cabecalho))
 
-    resultados = list(
-        db["Medicoes"].aggregate(pipeline)
-    )
+    for r in resumos:
+        valores = "".join(
+            f"{formatar_numero(r[campo], casas):>9}" for campo, _, casas in COLUNAS
+        )
+        print(f"{rotulo(r):<16}{valores}")
 
-    return resultados
-
-def executar_agregacao_por_cidade(db):
-    """
-    Executa a agregação por cidade e retorna os resultados.
-    """
-    pipeline = criar_pipeline_por_cidade()
-
-    resultados = list(
-        db["Medicoes"].aggregate(pipeline)
-    )
-
-    return resultados
-
-def obter_resumos(db):
-    """
-    Retorna os resumos por sensor e por cidade.
-    """
-
-    resumos = {
-        "por_sensor": executar_agregacao_por_sensor(db),
-        "por_cidade": executar_agregacao_por_cidade(db)
-    }
-
-    return resumos
 
 def main():
-    print("========================================")
-    print(" AGREGACOES - QUALIDADE DO AR")
-    print("========================================")
+    janela = obter_ultima_janela()
 
-    pipeline_sensor = criar_pipeline_por_sensor()
-    pipeline_cidade = criar_pipeline_por_cidade()
+    if janela is None:
+        raise RuntimeError("Nenhuma medição encontrada. Execute a etapa 2 primeiro.")
 
-    print("\n========== PIPELINE POR SENSOR ==========")
-    pprint(pipeline_sensor, sort_dicts=False)
+    inicio, fim = janela
 
-    print("\n========== PIPELINE POR CIDADE ==========")
-    pprint(pipeline_cidade, sort_dicts=False)
+    print(f"Janela horária: {inicio:%Y-%m-%d %H:%M} a {fim:%H:%M} UTC")
 
-
-if __name__ == "__main__":
-    main()
+    imprimir("RESUMO POR SENSOR", resumo_por_sensor(inicio, fim),
+             lambda r: r["sensor_id"])
+    imprimir("RESUMO POR CIDADE", resumo_por_cidade(inicio, fim),
+             lambda r: f"{r['cidade']}/{r['uf']}")
